@@ -27,7 +27,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID']
 
-  # Deploy with basic environment variables, using secrets for all sensitive data
+  # Deploy with service account (no credential files needed!)
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       - 'run'
@@ -41,10 +41,11 @@ steps:
       - '--min-instances=0'
       - '--max-instances=10'
       - '--port=8080'
+      - '--service-account=pub-sub-trigger@infis-ai.iam.gserviceaccount.com'
       - '--vpc-egress=private-ranges-only'
       - '--clear-vpc-connector'
       - '--timeout=300'
-      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_APPLICATION_CREDENTIALS=creds/pubsub_service_key.json,DEBUG=false,APP_NAME=Events Handler API,APP_VERSION=1.0.0,PUBSUB_TIMEOUT=60.0,MAX_MESSAGES_PER_PULL=100,API_V1_PREFIX=/api/v1,ALLOWED_HOSTS=*'
+      - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,DEBUG=false,APP_NAME=Events Handler API,APP_VERSION=1.0.0,PUBSUB_TIMEOUT=60.0,MAX_MESSAGES_PER_PULL=100,API_V1_PREFIX=/api/v1,ALLOWED_HOSTS=*'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID'

@@ -76,4 +76,23 @@ coverage.xml
 .dmypy.json
 dmypy.json
 
+# Credentials (NEVER commit these!)
 creds/
+*.json
+*key*.json
+*token*.json
+*secret*.json
+*credentials*.json
+service-account*.json
+*-sa.json
+# Google Cloud service account keys
+*service_key.json
+*_credentials.json
+credentials.json
+key.json
+# OAuth tokens  
+token.json
+client_secret*.json
+# Environment files with secrets
+.env.*
+!.env.example
