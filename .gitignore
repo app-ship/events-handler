@@ -60,6 +60,8 @@ logs/
 # Google Cloud
 service-account*.json
 *.json.key
+creds/
+credentials/
 
 # Testing
 .pytest_cache/
