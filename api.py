@@ -193,7 +193,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "api:app",
         host="0.0.0.0",
-        port=8001,
+        port=port,  # Use the port variable instead of hardcoded 8001
         reload=settings.debug,
         log_config=None,  # We use our own logging configuration
     )
