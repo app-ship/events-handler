@@ -10,7 +10,7 @@ class EventTriggerRequest(BaseModel):
         description="Name of the event to trigger (will be used as topic name)",
         min_length=1,
         max_length=255,
-        regex=r"^[a-zA-Z][a-zA-Z0-9-_]*$",
+        pattern=r"^[a-zA-Z][a-zA-Z0-9-_]*$",
     )
     event_data: Dict[str, Any] = Field(
         ...,
@@ -90,7 +90,7 @@ class TopicCreateRequest(BaseModel):
         description="ID for the new topic",
         min_length=1,
         max_length=255,
-        regex=r"^[a-zA-Z][a-zA-Z0-9-_]*$",
+        pattern=r"^[a-zA-Z][a-zA-Z0-9-_]*$",
     )
 
     @validator("topic_id")
