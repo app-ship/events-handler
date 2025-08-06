@@ -1,6 +1,6 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+import os
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # Pub/Sub settings
     pubsub_timeout: float = 60.0
     max_messages_per_pull: int = 100
+    
+    # Port settings
+    port: int = os.getenv("PORT", 8001)
     
     # API settings
     api_v1_prefix: str = "/api/v1"
