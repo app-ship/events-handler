@@ -187,13 +187,16 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    
-    port = settings.port
-    
+    import os
+
+    # Cloud Run provides the port number in the PORT environment variable.
+    # Default to 8001 for local development.
+    port = int(os.getenv("PORT", 8001))
+
     uvicorn.run(
         "api:app",
         host="0.0.0.0",
-        port=port,  # Use the port variable instead of hardcoded 8001
+        port=port,
         reload=settings.debug,
         log_config=None,  # We use our own logging configuration
     )
