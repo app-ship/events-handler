@@ -362,5 +362,20 @@ class GCPPubSubClient:
             }
 
 
-# Global client instance - ready to use with service identity
-pubsub_client = GCPPubSubClient() 
+# Global client instance - lazy loaded to prevent startup failures
+_pubsub_client: Optional[GCPPubSubClient] = None
+
+def get_pubsub_client() -> GCPPubSubClient:
+    """Get or create the global PubSub client instance"""
+    global _pubsub_client
+    if _pubsub_client is None:
+        _pubsub_client = GCPPubSubClient()
+    return _pubsub_client
+
+# For backward compatibility - expose as module-level variable
+class _PubSubClientProxy:
+    """Proxy to provide lazy loading for backward compatibility"""
+    def __getattr__(self, name):
+        return getattr(get_pubsub_client(), name)
+
+pubsub_client = _PubSubClientProxy() 

@@ -50,7 +50,12 @@ async def pubsub_health_check():
     try:
         logger.info("Performing Pub/Sub health check")
         
-        health_info = await pubsub_service.health_check()
+        # Use a timeout to prevent hanging
+        import asyncio
+        health_info = await asyncio.wait_for(
+            pubsub_service.health_check(), 
+            timeout=10.0  # 10 second timeout
+        )
         
         if health_info["status"] == "healthy":
             logger.info("Pub/Sub health check passed")
@@ -69,6 +74,16 @@ async def pubsub_health_check():
                 ).dict(),
             )
             
+    except asyncio.TimeoutError:
+        logger.error("Pub/Sub health check timed out")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=ErrorResponse(
+                error="Pub/Sub health check timed out",
+                error_code="HEALTH_CHECK_TIMEOUT",
+                details={"timeout": "10s"},
+            ).dict(),
+        )
     except Exception as e:
         logger.error(f"Pub/Sub health check error: {e}")
         return JSONResponse(
@@ -94,8 +109,12 @@ async def pubsub_health_check():
 )
 async def readiness_check():
     try:
-        # Check Pub/Sub connectivity
-        health_info = await pubsub_service.health_check()
+        # Check Pub/Sub connectivity with timeout
+        import asyncio
+        health_info = await asyncio.wait_for(
+            pubsub_service.health_check(),
+            timeout=10.0  # 10 second timeout
+        )
         
         if health_info["status"] == "healthy":
             return JSONResponse(
@@ -122,6 +141,19 @@ async def readiness_check():
                 },
             )
             
+    except asyncio.TimeoutError:
+        logger.error("Readiness check timed out")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "not ready",
+                "service": settings.app_name,
+                "version": settings.app_version,
+                "pubsub": "timeout",
+                "error": "Health check timed out after 10 seconds",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+        )
     except Exception as e:
         logger.error(f"Readiness check error: {e}")
         return JSONResponse(
