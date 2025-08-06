@@ -37,12 +37,10 @@ venv.bak/
 .env.production
 .env.development
 
-# Credentials and secrets
+# Credentials and sensitive files
 creds/
 *.json
-!package.json
-!package-lock.json
-!tsconfig.json
+!requirements.txt
 
 # IDE
 .vscode/
