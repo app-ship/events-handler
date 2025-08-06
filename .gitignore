@@ -37,11 +37,6 @@ venv.bak/
 .env.production
 .env.development
 
-# Credentials and sensitive files
-creds/
-*.json
-!requirements.txt
-
 # IDE
 .vscode/
 .idea/
