@@ -37,11 +37,13 @@ steps:
         gcloud projects add-iam-policy-binding $PROJECT_ID \
           --member="serviceAccount:pub-sub-trigger@$PROJECT_ID.iam.gserviceaccount.com" \
           --role="roles/pubsub.editor" \
+          --condition=None \
           || echo "Permission already exists or failed to add"
         
         gcloud projects add-iam-policy-binding $PROJECT_ID \
           --member="serviceAccount:pub-sub-trigger@$PROJECT_ID.iam.gserviceaccount.com" \
           --role="roles/pubsub.viewer" \
+          --condition=None \
           || echo "Permission already exists or failed to add"
 
   # Deploy with service account (no credential files needed!)
@@ -64,7 +66,7 @@ steps:
       - '--timeout=300'
       - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,DEBUG=false,APP_NAME=Events Handler API,APP_VERSION=1.0.0,PUBSUB_TIMEOUT=60.0,MAX_MESSAGES_PER_PULL=100,API_V1_PREFIX=/api/v1,ALLOWED_HOSTS=*'
       - '--execution-environment=gen2'
-      - '--startup-cpu-boost'
+      - '--cpu-boost'
 
 images:
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID'
