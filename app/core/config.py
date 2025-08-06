@@ -1,6 +1,7 @@
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
+from typing import List
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -29,7 +30,25 @@ class Settings(BaseSettings):
     
     # API settings
     api_v1_prefix: str = "/api/v1"
-    allowed_hosts: list[str] = ["*"]
+    allowed_hosts_raw: str = "*"  # Accept as string first
+    
+    @field_validator('allowed_hosts_raw')
+    @classmethod
+    def validate_allowed_hosts_raw(cls, v):
+        # Handle the conversion here
+        if v == "*":
+            return "*"
+        # If it's a comma-separated list, split it
+        if "," in v:
+            return v
+        return v
+    
+    @property
+    def allowed_hosts(self) -> List[str]:
+        """Convert the raw string to a list"""
+        if self.allowed_hosts_raw == "*":
+            return ["*"]
+        return [host.strip() for host in self.allowed_hosts_raw.split(",")]
 
 
 settings = Settings()
