@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     allowed_hosts_raw: str = "*"  # Accept as string first
     
+    # Slack settings
+    slack_signing_secret: str = Field(default="", alias="SLACK_SIGNING_SECRET")
+    slack_webhook_verify_signature: bool = Field(default=True, alias="SLACK_WEBHOOK_VERIFY_SIGNATURE")
+    
     @field_validator('allowed_hosts_raw')
     @classmethod
     def validate_allowed_hosts_raw(cls, v):
