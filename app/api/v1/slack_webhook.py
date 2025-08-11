@@ -165,10 +165,11 @@ async def slack_webhook(request: Request):
                     logger.info(f"Skipping bot event: {event_wrapper.event.type}")
                     return SlackWebhookResponse(status="ok", message="Bot event skipped")
                 
-                # Only process message events for now (can be extended for other event types)
-                if event_wrapper.event.type != "message":
-                    logger.info(f"Skipping non-message event: {event_wrapper.event.type}")
-                    return SlackWebhookResponse(status="ok", message="Non-message event skipped")
+                # Process supported Slack events (message and app_mention)
+                supported_event_types = {"message", "app_mention"}
+                if event_wrapper.event.type not in supported_event_types:
+                    logger.info(f"Skipping unsupported event: {event_wrapper.event.type}")
+                    return SlackWebhookResponse(status="ok", message="Unsupported event skipped")
                 
                 # Skip message subtypes that aren't user messages
                 if hasattr(event_wrapper.event, 'subtype') and event_wrapper.event.subtype:
