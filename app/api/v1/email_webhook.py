@@ -7,7 +7,7 @@ import logging
 import time
 import base64
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -61,7 +61,10 @@ def _create_error_response(
     summary="Email Events API webhook",
     description="Receives Email Events API webhooks and publishes them to the EMAIL_REPLY_EVENT pub/sub topic",
     responses={
-        200: {"model": EmailWebhookResponse, "description": "Email event processed successfully"},
+        200: {
+            "model": EmailWebhookResponse,
+            "description": "Email event processed successfully",
+        },
         400: {"model": ErrorResponse, "description": "Invalid request data"},
         401: {"model": ErrorResponse, "description": "Invalid signature"},
         500: {"model": ErrorResponse, "description": "Internal server error"},
@@ -70,7 +73,7 @@ def _create_error_response(
 async def email_webhook(request: Request):
     """
     Email Events API webhook endpoint
-    
+
     This endpoint:
     1. Receives Email Events API webhooks
     2. Handles URL verification challenges
@@ -79,7 +82,7 @@ async def email_webhook(request: Request):
     try:
         # Get request body
         body = await request.body()
-        
+
         # Parse JSON body
         try:
             payload_data = json.loads(body)
@@ -90,7 +93,7 @@ async def email_webhook(request: Request):
                 error_message="Invalid JSON",
                 error_code="INVALID_JSON",
             )
-        
+
         # Handle URL verification challenge
         if payload_data.get("type") == "url_verification":
             try:
@@ -103,37 +106,46 @@ async def email_webhook(request: Request):
                     error_message=f"Invalid challenge payload: {str(e)}",
                     error_code="INVALID_CHALLENGE",
                 )
-        
+
         # Handle event callback
         elif payload_data.get("type") == "email_callback":
             try:
                 # Parse the Email event
                 event_wrapper = EmailEventWrapper(**payload_data)
-                
-                logger.info(f"Received Email event: {event_wrapper.event_id} from project {event_wrapper.project_id}")
+
+                logger.info(
+                    f"Received Email event: {event_wrapper.event_id} from project {event_wrapper.project_id}"
+                )
                 logger.info(f"Event type: {event_wrapper.event.type}")
-                
+
                 # Process supported Email events (email_reply)
                 supported_event_types = {"email_reply"}
                 if event_wrapper.event.type not in supported_event_types:
-                    logger.info(f"Skipping unsupported event: {event_wrapper.event.type}")
-                    return EmailWebhookResponse(status="ok", message="Unsupported event skipped")
-                
+                    logger.info(
+                        f"Skipping unsupported event: {event_wrapper.event.type}"
+                    )
+                    return EmailWebhookResponse(
+                        status="ok", message="Unsupported event skipped"
+                    )
+
                 # Skip empty messages
                 if not event_wrapper.event.body or not event_wrapper.event.body.strip():
                     logger.info("Skipping empty email message")
-                    return EmailWebhookResponse(status="ok", message="Empty email message skipped")
-                
+                    return EmailWebhookResponse(
+                        status="ok", message="Empty email message skipped"
+                    )
+
                 # Publish to pub/sub topic
                 publish_result = await publish_email_event(event_wrapper)
-                
-                logger.info(f"Email event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}")
-                
-                return EmailWebhookResponse(
-                    status="ok",
-                    message="Email event published to pub/sub"
+
+                logger.info(
+                    f"Email event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}"
                 )
-                
+
+                return EmailWebhookResponse(
+                    status="ok", message="Email event published to pub/sub"
+                )
+
             except Exception as e:
                 logger.error(f"Error processing Email event: {e}")
                 return _create_error_response(
@@ -142,12 +154,12 @@ async def email_webhook(request: Request):
                     error_code="INVALID_EVENT",
                     details={"error": str(e)},
                 )
-        
+
         # Unknown event type
         else:
             logger.warning(f"Unknown Email webhook type: {payload_data.get('type')}")
             return EmailWebhookResponse(status="ok", message="Unknown event type")
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -163,25 +175,25 @@ async def email_webhook(request: Request):
 async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str]:
     """
     Publish Email event to EMAIL_REPLY_EVENT pub/sub topic
-    
+
     Args:
         event_wrapper: Email event wrapper data
-        
+
     Returns:
         Dictionary with publish result containing message_id
-        
+
     Raises:
         PubSubServiceException: If publishing fails
     """
     try:
         # Prepare event data for pub/sub
         event_data = {
-            "email_event": event_wrapper.dict(),
+            "email_event": event_wrapper.model_dump(),
             "source_service": "events-handler",
             "event_timestamp": time.time(),
             "event_type": "email_reply",
         }
-        
+
         # Prepare attributes for message routing
         attributes = {
             "source_service": "events-handler",
@@ -191,28 +203,101 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
             "to_email": event_wrapper.event.to_email or "",
             "message_type": event_wrapper.event.type,
         }
-        
+
         # Create topic if it doesn't exist
-        topic_info = await pubsub_service.create_topic_if_not_exists(EMAIL_REPLY_EVENT_TOPIC)
-        
+        topic_info = await pubsub_service.create_topic_if_not_exists(
+            EMAIL_REPLY_EVENT_TOPIC
+        )
+
         # Publish the message
         publish_result = await pubsub_service.publish_message(
             topic_id=EMAIL_REPLY_EVENT_TOPIC,
             message_data=event_data,
             attributes=attributes,
         )
-        
-        logger.info(f"Published Email event to topic {topic_info['topic_path']} with message ID: {publish_result['message_id']}")
-        
+
+        logger.info(
+            f"Published Email event to topic {topic_info['topic_path']} with message ID: {publish_result['message_id']}"
+        )
+
         return publish_result
-        
+
     except Exception as e:
         logger.error(f"Failed to publish Email event to pub/sub: {e}")
         raise PubSubServiceException(
             message=f"Failed to publish Email event: {str(e)}",
             error_code="EMAIL_PUBLISH_ERROR",
-            details={"event_id": event_wrapper.event_id, "error": str(e)}
+            details={"event_id": event_wrapper.event_id, "error": str(e)},
         )
+
+
+async def process_gmail_notification(
+    gmail_data: Dict[str, Any], _attributes: Dict[str, str]
+) -> Optional[EmailEventWrapper]:
+    """
+    Process Gmail push notification and convert to EmailEventWrapper format.
+
+    Gmail push notifications have format:
+    {
+        "emailAddress": "user@domain.com",
+        "historyId": 12345
+    }
+
+    This function would need to fetch actual email content from Gmail API using the historyId.
+    For now, we'll create a placeholder implementation that handles basic structure.
+    """
+    try:
+        # Extract email address and history ID from Gmail notification
+        email_address = gmail_data.get("emailAddress")
+        history_id = gmail_data.get("historyId")
+
+        if not email_address or not history_id:
+            logger.warning(
+                f"Missing required fields in Gmail notification: emailAddress={email_address}, historyId={history_id}"
+            )
+            return None
+
+        logger.info(
+            f"Processing Gmail notification for {email_address} with historyId {history_id}"
+        )
+
+        # TODO: In a complete implementation, you would:
+        # 1. Use Gmail API to fetch the actual email content using historyId
+        # 2. Extract the email subject, body, thread_id, message_id, etc.
+        # 3. Determine if this is actually a reply that needs processing
+
+        # For now, create a placeholder EmailEventWrapper with available data
+        # This ensures the structure is correct even without full Gmail API integration
+        current_time = int(time.time())
+        event_data = {
+            "project_id": "infis-ai",  # Default project
+            "event": {
+                "type": "email_reply",
+                "event_ts": str(current_time),
+                "from_email": email_address,
+                "to_email": "",  # Would be populated from Gmail API
+                "subject": f"Gmail Notification (History ID: {history_id})",
+                "body": f"Email notification received for {email_address} with history ID {history_id}. Full content would be fetched from Gmail API.",
+                "thread_id": str(history_id),
+                "message_id": f"gmail-{history_id}-{current_time}",
+                "in_reply_to": "",
+            },
+            "type": "email_callback",
+            "event_id": f"gmail-{history_id}-{current_time}",
+            "event_time": current_time,
+        }
+
+        # Validate and create EmailEventWrapper
+        email_event = EmailEventWrapper(**event_data)
+        logger.info(
+            f"Created EmailEventWrapper from Gmail notification: {email_event.event_id}"
+        )
+        return email_event
+
+    except Exception as e:
+        logger.error(f"Failed to process Gmail notification: {e}")
+        logger.error(f"Gmail data: {gmail_data}")
+        return None
 
 
 @router.post(
@@ -220,18 +305,23 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
     response_model=dict,
     status_code=status.HTTP_200_OK,
     summary="Pub/Sub push endpoint for Gmail email-replies",
-    description="Receives Pub/Sub push messages from topic 'email-replies' and republishes to 'raw-gmail-push-stage'",
+    description="Receives Pub/Sub push messages from topic 'email-replies', processes Gmail notifications, and publishes formatted events to 'stage-email-reply-topic'",
 )
 async def email_push_subscription(request: Request):
-    """Handle Pub/Sub push for projects/infis-ai/topics/email-replies and forward to raw stage topic"""
+    """Handle Pub/Sub push for projects/infis-ai/topics/email-replies and process Gmail notifications"""
     try:
         body = await request.json()
         # Expecting standard Pub/Sub push: {"message": {"data": base64, "attributes": {...}}, "subscription": "..."}
         message = body.get("message", {})
         attributes = message.get("attributes", {}) or {}
         data_b64 = message.get("data", "")
+
         try:
-            decoded = json.loads(base64.b64decode(data_b64).decode("utf-8")) if data_b64 else {}
+            decoded = (
+                json.loads(base64.b64decode(data_b64).decode("utf-8"))
+                if data_b64
+                else {}
+            )
         except Exception as e:
             logger.error(f"Invalid base64 data in Pub/Sub push: {e}")
             return _create_error_response(
@@ -239,16 +329,38 @@ async def email_push_subscription(request: Request):
                 error_message="Invalid Pub/Sub data",
                 error_code="INVALID_PUBSUB_DATA",
             )
-        
-        # Republish same payload to raw stage topic (keep raw format isolated)
+
+        logger.info(f"Received Gmail push notification: {decoded}")
+
+        # Republish raw payload to raw stage topic for debugging/backup
         await pubsub_service.create_topic_if_not_exists(RAW_GMAIL_PUSH_TOPIC)
-        publish_result = await pubsub_service.publish_message(
+        await pubsub_service.publish_message(
             topic_id=RAW_GMAIL_PUSH_TOPIC,
             message_data=decoded,
             attributes=attributes,
         )
-        
-        return {"status": "ok", "message_id": publish_result.get("message_id")}
+
+        # Process Gmail notification data into EmailReplyEventData format
+        processed_event = await process_gmail_notification(decoded, attributes)
+        if processed_event:
+            # Publish formatted event to stage topic for AgentHog consumption
+            publish_result = await publish_email_event(processed_event)
+            logger.info(
+                f"Successfully processed Gmail notification and published event with message ID: {publish_result['message_id']}"
+            )
+            return {
+                "status": "ok",
+                "message_id": publish_result.get("message_id"),
+                "processed": True,
+            }
+        else:
+            logger.info("Gmail notification skipped - no actionable email event")
+            return {
+                "status": "ok",
+                "processed": False,
+                "message": "No actionable email event",
+            }
+
     except Exception as e:
         logger.error(f"Error handling email push subscription: {e}")
         return _create_error_response(
