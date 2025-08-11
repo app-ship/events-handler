@@ -5,6 +5,8 @@ Receives Email Events API webhooks and publishes to pub/sub topics
 
 import logging
 import time
+import base64
+import json
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -30,6 +32,7 @@ router = APIRouter(prefix="/email", tags=["email"])
 
 # Email topic name for event publishing
 EMAIL_REPLY_EVENT_TOPIC = "app-email-reply-event"
+STAGE_EMAIL_REPLY_TOPIC = "stage-email-reply-topic"
 
 
 def _create_error_response(
@@ -76,32 +79,27 @@ async def email_webhook(request: Request):
         # Get request body
         body = await request.body()
         
-        # Parse payload
+        # Parse JSON body
         try:
-            import json
-            payload_data = json.loads(body.decode())
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid JSON in Email webhook: {e}")
+            payload_data = json.loads(body)
+        except json.JSONDecodeError:
+            logger.error("Invalid JSON in request body")
             return _create_error_response(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                error_message="Invalid JSON payload",
+                error_message="Invalid JSON",
                 error_code="INVALID_JSON",
             )
         
         # Handle URL verification challenge
         if payload_data.get("type") == "url_verification":
             try:
-                challenge_data = EmailChallenge(**payload_data)
-                logger.info("Responding to Email URL verification challenge")
-                return EmailWebhookResponse(
-                    status="ok",
-                    challenge=challenge_data.challenge
-                )
+                challenge = EmailChallenge(**payload_data)
+                return EmailWebhookResponse(status="ok", challenge=challenge.challenge)
             except Exception as e:
-                logger.error(f"Error parsing Email challenge: {e}")
+                logger.error(f"Invalid challenge payload: {e}")
                 return _create_error_response(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    error_message=f"Invalid challenge format: {str(e)}",
+                    error_message=f"Invalid challenge payload: {str(e)}",
                     error_code="INVALID_CHALLENGE",
                 )
         
@@ -213,6 +211,50 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
             message=f"Failed to publish Email event: {str(e)}",
             error_code="EMAIL_PUBLISH_ERROR",
             details={"event_id": event_wrapper.event_id, "error": str(e)}
+        )
+
+
+@router.post(
+    "/push",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    summary="Pub/Sub push endpoint for Gmail email-replies",
+    description="Receives Pub/Sub push messages from topic 'email-replies' and republishes to 'stage-email-reply-topic'",
+)
+async def email_push_subscription(request: Request):
+    """Handle Pub/Sub push for projects/infis-ai/topics/email-replies and forward to stage topic"""
+    try:
+        body = await request.json()
+        # Expecting standard Pub/Sub push: {"message": {"data": base64, "attributes": {...}}, "subscription": "..."}
+        message = body.get("message", {})
+        attributes = message.get("attributes", {}) or {}
+        data_b64 = message.get("data", "")
+        try:
+            decoded = json.loads(base64.b64decode(data_b64).decode("utf-8")) if data_b64 else {}
+        except Exception as e:
+            logger.error(f"Invalid base64 data in Pub/Sub push: {e}")
+            return _create_error_response(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error_message="Invalid Pub/Sub data",
+                error_code="INVALID_PUBSUB_DATA",
+            )
+        
+        # Republish same payload to stage topic
+        await pubsub_service.create_topic_if_not_exists(STAGE_EMAIL_REPLY_TOPIC)
+        publish_result = await pubsub_service.publish_message(
+            topic_id=STAGE_EMAIL_REPLY_TOPIC,
+            message_data=decoded,
+            attributes=attributes,
+        )
+        
+        return {"status": "ok", "message_id": publish_result.get("message_id")}
+    except Exception as e:
+        logger.error(f"Error handling email push subscription: {e}")
+        return _create_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_message="Internal error handling Pub/Sub push",
+            error_code="PUSH_HANDLER_ERROR",
+            details={"error": str(e)},
         )
 
 
