@@ -31,8 +31,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email", tags=["email"])
 
 # Email topic name for event publishing
-EMAIL_REPLY_EVENT_TOPIC = "app-email-reply-event"
+EMAIL_REPLY_EVENT_TOPIC = "stage-email-reply-topic"
 STAGE_EMAIL_REPLY_TOPIC = "stage-email-reply-topic"
+RAW_GMAIL_PUSH_TOPIC = "raw-gmail-push-stage"
 
 
 def _create_error_response(
@@ -219,10 +220,10 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
     response_model=dict,
     status_code=status.HTTP_200_OK,
     summary="Pub/Sub push endpoint for Gmail email-replies",
-    description="Receives Pub/Sub push messages from topic 'email-replies' and republishes to 'stage-email-reply-topic'",
+    description="Receives Pub/Sub push messages from topic 'email-replies' and republishes to 'raw-gmail-push-stage'",
 )
 async def email_push_subscription(request: Request):
-    """Handle Pub/Sub push for projects/infis-ai/topics/email-replies and forward to stage topic"""
+    """Handle Pub/Sub push for projects/infis-ai/topics/email-replies and forward to raw stage topic"""
     try:
         body = await request.json()
         # Expecting standard Pub/Sub push: {"message": {"data": base64, "attributes": {...}}, "subscription": "..."}
@@ -239,10 +240,10 @@ async def email_push_subscription(request: Request):
                 error_code="INVALID_PUBSUB_DATA",
             )
         
-        # Republish same payload to stage topic
-        await pubsub_service.create_topic_if_not_exists(STAGE_EMAIL_REPLY_TOPIC)
+        # Republish same payload to raw stage topic (keep raw format isolated)
+        await pubsub_service.create_topic_if_not_exists(RAW_GMAIL_PUSH_TOPIC)
         publish_result = await pubsub_service.publish_message(
-            topic_id=STAGE_EMAIL_REPLY_TOPIC,
+            topic_id=RAW_GMAIL_PUSH_TOPIC,
             message_data=decoded,
             attributes=attributes,
         )

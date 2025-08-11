@@ -29,7 +29,7 @@ EMAIL_SOURCE_TOPIC = "email-replies"
 EMAIL_SOURCE_SUBSCRIPTION = "email-replies-subscription"
 
 # Target topic to publish to (app events)
-EMAIL_TARGET_TOPIC = "app-email-reply-event"
+EMAIL_TARGET_TOPIC = "stage-email-reply-topic"
 
 
 class EmailSubscriptionService:
