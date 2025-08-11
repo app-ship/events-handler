@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.v1 import events, health, slack_webhook
+from app.api.v1 import events, health, slack_webhook, email_webhook
 from app.core.config import settings
 from app.utils.exceptions import EventsHandlerException
 
@@ -165,6 +165,11 @@ app.include_router(
     prefix=settings.api_v1_prefix,
 )
 
+app.include_router(
+    email_webhook.router,
+    prefix=settings.api_v1_prefix,
+)
+
 # Root health check (for load balancers)
 @app.get("/health")
 async def root_health_check():
@@ -186,6 +191,7 @@ async def root():
                 "events": f"{settings.api_v1_prefix}/events",
                 "health": f"{settings.api_v1_prefix}/health",
                 "slack": f"{settings.api_v1_prefix}/slack",
+                "email": f"{settings.api_v1_prefix}/email",
             }
         },
     }
