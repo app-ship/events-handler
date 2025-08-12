@@ -262,12 +262,18 @@ async def process_gmail_notification(
         )
 
         # Fetch actual email content from Gmail API
-        email_content = await fetch_recent_email_content(email_address)
+        try:
+            email_content = await fetch_recent_email_content(email_address)
+            logger.info(f"Gmail API fetch result: {'SUCCESS' if email_content else 'FAILED'}")
+        except Exception as e:
+            logger.error(f"Gmail API fetch failed with exception: {e}")
+            email_content = None
 
         if not email_content:
             logger.warning(
                 f"No recent email content found for {email_address}, creating placeholder event"
             )
+            logger.info("This could be due to: Gmail API failure, token expiration, no recent emails, or non-reply emails")
             # Fallback to placeholder content if Gmail API fails
             current_time = int(time.time())
             event_data = {
@@ -289,9 +295,14 @@ async def process_gmail_notification(
             }
 
             # Validate and create EmailEventWrapper with placeholder
-            email_event = EmailEventWrapper(**event_data)
-            logger.info(f"Created fallback EmailEventWrapper: {email_event.event_id}")
-            return email_event
+            try:
+                email_event = EmailEventWrapper(**event_data)
+                logger.info(f"Created fallback EmailEventWrapper: {email_event.event_id}")
+                return email_event
+            except Exception as e:
+                logger.error(f"Failed to create fallback EmailEventWrapper: {e}")
+                logger.error(f"Event data: {event_data}")
+                return None
 
         # Create EmailEventWrapper with actual email content
         current_time = int(time.time())
@@ -309,21 +320,22 @@ async def process_gmail_notification(
                 "in_reply_to": email_content.get("in_reply_to", ""),
             },
             "type": "email_callback",
-            "event_id": f"gmail-{history_id}-{current_time}",
+            "event_id": f"Em{int(time.time())}{hash(email_content.get('message_id', '')) % 1000000}",
             "event_time": current_time,
         }
 
-        # Skip empty messages
-        if not email_content["body"] or not email_content["body"].strip():
-            logger.info("Skipping empty email message")
-            return None
-
         # Validate and create EmailEventWrapper
-        email_event = EmailEventWrapper(**event_data)
-        logger.info(
-            f"Created EmailEventWrapper from Gmail notification: {email_event.event_id}"
-        )
-        return email_event
+        try:
+            email_event = EmailEventWrapper(**event_data)
+            logger.info(
+                f"Created EmailEventWrapper from Gmail notification: {email_event.event_id}"
+            )
+            return email_event
+        except Exception as e:
+            logger.error(f"Failed to create EmailEventWrapper from Gmail content: {e}")
+            logger.error(f"Email content: {email_content}")
+            logger.error(f"Event data: {event_data}")
+            return None
 
     except Exception as e:
         logger.error(f"Failed to process Gmail notification: {e}")
@@ -549,7 +561,26 @@ async def email_push_subscription(request: Request):
         # Process Gmail notification data into EmailReplyEventData format
         processed_event = await process_gmail_notification(decoded, attributes)
         if processed_event:
-            # Publish formatted event to stage topic for AgentHog consumption
+            # Validate that we have a proper EmailEventWrapper before publishing
+            if not isinstance(processed_event, EmailEventWrapper):
+                logger.error(f"process_gmail_notification returned invalid type: {type(processed_event)}")
+                return {
+                    "status": "error",
+                    "processed": False,
+                    "message": "Invalid processed event type"
+                }
+            
+            # Additional validation to ensure we're not publishing raw Gmail data
+            if hasattr(processed_event, 'emailAddress') or hasattr(processed_event, 'historyId'):
+                logger.error("Detected raw Gmail data in processed_event - preventing publication")
+                logger.error(f"Problematic data: {processed_event}")
+                return {
+                    "status": "error", 
+                    "processed": False,
+                    "message": "Raw Gmail data detected - processing failed"
+                }
+            
+            # Publish formatted event to stage topic for AgentHub consumption
             publish_result = await publish_email_event(processed_event)
             logger.info(
                 f"Successfully processed Gmail notification and published event with message ID: {publish_result['message_id']}"

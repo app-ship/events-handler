@@ -46,6 +46,7 @@ steps:
       - '--clear-vpc-connector'
       - '--timeout=300'
       - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,DEBUG=false,APP_NAME=Events Handler API,APP_VERSION=1.0.0,PUBSUB_TIMEOUT=60.0,MAX_MESSAGES_PER_PULL=100,API_V1_PREFIX=/api/v1,ALLOWED_HOSTS_RAW=*'
+      - '--update-secrets=:GMAIL_OAUTH_TOKEN=GMAIL_OAUTH_TOKEN:latest,GMAIL_CLIENT_SECRET=GMAIL_CLIENT_SECRET:latest'
       - '--execution-environment=gen2'
       - '--cpu-boost'
 
