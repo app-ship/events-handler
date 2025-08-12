@@ -109,6 +109,17 @@ class EmailSubscriptionService:
             # Parse message data
             message_data = json.loads(message.data.decode('utf-8'))
             logger.info(f"Processing email message: {message.message_id}")
+            # Log raw payload and attributes for observability
+            try:
+                logger.info(
+                    f"Email subscription received message payload: {message_data}"
+                )
+                logger.info(
+                    f"Email subscription message attributes: {dict(message.attributes or {})}"
+                )
+            except Exception:
+                # Ensure logging never breaks processing
+                pass
             
             # Convert to EmailEventWrapper format
             email_event = self._convert_to_email_event(message_data, message.attributes)

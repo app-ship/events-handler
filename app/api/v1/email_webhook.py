@@ -7,6 +7,8 @@ import logging
 import time
 import base64
 import json
+import os
+import re
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -33,7 +35,6 @@ router = APIRouter(prefix="/email", tags=["email"])
 # Email topic name for event publishing
 EMAIL_REPLY_EVENT_TOPIC = "stage-email-reply-topic"
 STAGE_EMAIL_REPLY_TOPIC = "stage-email-reply-topic"
-RAW_GMAIL_PUSH_TOPIC = "raw-gmail-push-stage"
 
 
 def _create_error_response(
@@ -243,8 +244,7 @@ async def process_gmail_notification(
         "historyId": 12345
     }
 
-    This function would need to fetch actual email content from Gmail API using the historyId.
-    For now, we'll create a placeholder implementation that handles basic structure.
+    This function fetches actual email content from Gmail API using the historyId.
     """
     try:
         # Extract email address and history ID from Gmail notification
@@ -261,31 +261,37 @@ async def process_gmail_notification(
             f"Processing Gmail notification for {email_address} with historyId {history_id}"
         )
 
-        # TODO: In a complete implementation, you would:
-        # 1. Use Gmail API to fetch the actual email content using historyId
-        # 2. Extract the email subject, body, thread_id, message_id, etc.
-        # 3. Determine if this is actually a reply that needs processing
+        # Fetch actual email content from Gmail API
+        email_content = await fetch_recent_email_content(email_address)
 
-        # For now, create a placeholder EmailEventWrapper with available data
-        # This ensures the structure is correct even without full Gmail API integration
+        if not email_content:
+            logger.warning(f"No recent email content found for {email_address}")
+            return None
+
+        # Create EmailEventWrapper with actual email content
         current_time = int(time.time())
         event_data = {
             "project_id": "infis-ai",  # Default project
             "event": {
                 "type": "email_reply",
                 "event_ts": str(current_time),
-                "from_email": email_address,
-                "to_email": "",  # Would be populated from Gmail API
-                "subject": f"Gmail Notification (History ID: {history_id})",
-                "body": f"Email notification received for {email_address} with history ID {history_id}. Full content would be fetched from Gmail API.",
-                "thread_id": str(history_id),
-                "message_id": f"gmail-{history_id}-{current_time}",
-                "in_reply_to": "",
+                "from_email": email_content["from_email"],
+                "to_email": email_content["to_email"],
+                "subject": email_content["subject"],
+                "body": email_content["body"],
+                "thread_id": email_content["thread_id"],
+                "message_id": email_content["message_id"],
+                "in_reply_to": email_content.get("in_reply_to", ""),
             },
             "type": "email_callback",
             "event_id": f"gmail-{history_id}-{current_time}",
             "event_time": current_time,
         }
+
+        # Skip empty messages
+        if not email_content["body"] or not email_content["body"].strip():
+            logger.info("Skipping empty email message")
+            return None
 
         # Validate and create EmailEventWrapper
         email_event = EmailEventWrapper(**event_data)
@@ -298,6 +304,173 @@ async def process_gmail_notification(
         logger.error(f"Failed to process Gmail notification: {e}")
         logger.error(f"Gmail data: {gmail_data}")
         return None
+
+
+async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, str]]:
+    """
+    Fetch the most recent email content for the given email address using Gmail API.
+
+    Returns:
+        Dictionary with email content fields or None if no recent email found
+    """
+    try:
+        from google.oauth2.credentials import Credentials
+        from googleapiclient.discovery import build
+        import base64
+        import re
+
+        # Get Gmail credentials from environment variables
+        gmail_oauth_token = os.getenv("GMAIL_OAUTH_TOKEN")
+        
+        if not gmail_oauth_token:
+            logger.error("GMAIL_OAUTH_TOKEN environment variable not found")
+            return None
+
+        # Parse the OAuth token JSON
+        try:
+            token_info = json.loads(gmail_oauth_token)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse GMAIL_OAUTH_TOKEN: {e}")
+            return None
+
+        # Create credentials from the token info
+        creds = Credentials(
+            token=token_info.get("token"),
+            refresh_token=token_info.get("refresh_token"),
+            token_uri=token_info.get("token_uri"),
+            client_id=token_info.get("client_id"),
+            client_secret=token_info.get("client_secret"),
+            scopes=token_info.get("scopes", ["https://www.googleapis.com/auth/gmail.readonly"])
+        )
+        
+        # Build Gmail service
+        service = build("gmail", "v1", credentials=creds)
+
+        # Get the most recent message (within last 2 minutes)
+        results = (
+            service.users()
+            .messages()
+            .list(
+                userId="me",
+                q="newer_than:2m",  # Messages newer than 2 minutes
+                maxResults=1,
+            )
+            .execute()
+        )
+
+        messages = results.get("messages", [])
+        if not messages:
+            logger.info("No recent messages found")
+            return None
+
+        # Get the most recent message details
+        message_id = messages[0]["id"]
+        message = service.users().messages().get(userId="me", id=message_id).execute()
+
+        # Extract headers
+        headers = {
+            h["name"]: h["value"] for h in message.get("payload", {}).get("headers", [])
+        }
+
+        # Check if this is a reply (has In-Reply-To or References headers)
+        is_reply = "In-Reply-To" in headers or "References" in headers
+        if not is_reply:
+            logger.info("Latest message is not a reply, skipping")
+            return None
+
+        # Extract email content
+        content = extract_email_content(message)
+        if not content:
+            logger.warning("Could not extract content from email")
+            return None
+
+        return {
+            "from_email": headers.get("From", ""),
+            "to_email": headers.get("To", ""),
+            "subject": headers.get("Subject", "No Subject"),
+            "body": content,
+            "thread_id": message.get("threadId", ""),
+            "message_id": headers.get("Message-ID", message_id),
+            "in_reply_to": headers.get("In-Reply-To", ""),
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching email content from Gmail API: {e}")
+        return None
+
+
+def extract_email_content(message: Dict[str, Any]) -> str:
+    """
+    Extract the text content from the email message, trying to get only the latest reply.
+    """
+    try:
+        if "payload" not in message:
+            return ""
+
+        content = ""
+
+        # Check for plain text parts first
+        if "parts" in message["payload"]:
+            for part in message["payload"]["parts"]:
+                if part["mimeType"] == "text/plain":
+                    if "data" in part["body"]:
+                        content = base64.urlsafe_b64decode(part["body"]["data"]).decode(
+                            "utf-8"
+                        )
+                        break
+
+        # If no plain text parts, try to get the body directly
+        if (
+            not content
+            and "body" in message["payload"]
+            and "data" in message["payload"]["body"]
+        ):
+            if message["payload"].get("mimeType") == "text/plain":
+                content = base64.urlsafe_b64decode(
+                    message["payload"]["body"]["data"]
+                ).decode("utf-8")
+
+        if content:
+            # Split content into lines
+            lines = content.splitlines()
+
+            # Find where quoted text begins and remove it
+            cut_off_index = len(lines)
+            for i, line in enumerate(lines):
+                # Common reply headers
+                if re.match(r"On\s.*(wrote|écrit):$", line.strip(), re.IGNORECASE):
+                    cut_off_index = i
+                    break
+                # Forwarded message header
+                if line.strip() == "---------- Forwarded message ---------":
+                    cut_off_index = i
+                    break
+
+            # Take all lines before the cut-off
+            latest_reply_lines = lines[:cut_off_index]
+            latest_reply = "\n".join(latest_reply_lines).strip()
+
+            if latest_reply:
+                return latest_reply
+            else:
+                # Try removing quoted lines (starting with ">")
+                last_non_quote = -1
+                for i in range(len(lines) - 1, -1, -1):
+                    if not lines[i].strip().startswith(">"):
+                        last_non_quote = i
+                        break
+                if last_non_quote != -1:
+                    return "\n".join(lines[: last_non_quote + 1]).strip()
+
+        # If we still don't have content, use the snippet
+        if message.get("snippet"):
+            return message.get("snippet", "")
+
+        return content
+
+    except Exception as e:
+        logger.error(f"Error extracting email content: {e}")
+        return ""
 
 
 @router.post(
@@ -331,14 +504,6 @@ async def email_push_subscription(request: Request):
             )
 
         logger.info(f"Received Gmail push notification: {decoded}")
-
-        # Republish raw payload to raw stage topic for debugging/backup
-        await pubsub_service.create_topic_if_not_exists(RAW_GMAIL_PUSH_TOPIC)
-        await pubsub_service.publish_message(
-            topic_id=RAW_GMAIL_PUSH_TOPIC,
-            message_data=decoded,
-            attributes=attributes,
-        )
 
         # Process Gmail notification data into EmailReplyEventData format
         processed_event = await process_gmail_notification(decoded, attributes)
