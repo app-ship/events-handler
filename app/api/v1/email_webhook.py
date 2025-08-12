@@ -262,11 +262,20 @@ async def process_gmail_notification(
         )
 
         # Fetch actual email content from Gmail API
+        logger.info(f"[Gmail Notification] Attempting to fetch email content for {email_address}...")
         try:
             email_content = await fetch_recent_email_content(email_address)
-            logger.info(f"Gmail API fetch result: {'SUCCESS' if email_content else 'FAILED'}")
+            if email_content:
+                logger.info(f"[Gmail Notification] Gmail API fetch SUCCESS - Retrieved email content")
+                logger.info(f"[Gmail Notification] Content summary: From={email_content.get('from_email', 'N/A')}, Subject='{email_content.get('subject', 'N/A')}'")
+                logger.debug(f"[Gmail Notification] Full email content keys: {list(email_content.keys())}")
+            else:
+                logger.warning(f"[Gmail Notification] Gmail API fetch FAILED - No content returned")
         except Exception as e:
-            logger.error(f"Gmail API fetch failed with exception: {e}")
+            logger.error(f"[Gmail Notification] Gmail API fetch failed with exception: {e}")
+            logger.error(f"[Gmail Notification] Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"[Gmail Notification] Full traceback: {traceback.format_exc()}")
             email_content = None
 
         if not email_content:
@@ -350,6 +359,7 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
     Returns:
         Dictionary with email content fields or None if no recent email found
     """
+    logger.info(f"[Gmail API] Starting email content fetch for: {email_address}")
     try:
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
@@ -362,17 +372,21 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         gmail_oauth_token = settings.gmail_oauth_token
 
         if not gmail_oauth_token:
-            logger.error("GMAIL_OAUTH_TOKEN not configured in settings")
+            logger.error("[Gmail API] GMAIL_OAUTH_TOKEN not configured in settings")
             return None
+
+        logger.debug(f"[Gmail API] Gmail OAuth token configured, length: {len(gmail_oauth_token)}")
 
         # Parse the OAuth token JSON
         try:
             token_info = json.loads(gmail_oauth_token)
+            logger.debug(f"[Gmail API] Successfully parsed OAuth token, keys: {list(token_info.keys())}")
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse GMAIL_OAUTH_TOKEN: {e}")
+            logger.error(f"[Gmail API] Failed to parse GMAIL_OAUTH_TOKEN: {e}")
             return None
 
         # Create credentials from the token info
+        logger.debug(f"[Gmail API] Creating credentials with client_id: {token_info.get('client_id', 'N/A')[:20]}...")
         creds = Credentials(
             token=token_info.get("token"),
             refresh_token=token_info.get("refresh_token"),
@@ -385,21 +399,27 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
             ],
         )
 
+        logger.debug(f"[Gmail API] Credentials created. Expired: {creds.expired}, Has refresh token: {bool(creds.refresh_token)}")
+
         # Refresh token if expired
         if creds.expired and creds.refresh_token:
             from google.auth.transport.requests import Request
 
             try:
+                logger.info("[Gmail API] Refreshing expired credentials...")
                 creds.refresh(Request())
-                logger.info("Gmail credentials refreshed successfully")
+                logger.info("[Gmail API] Gmail credentials refreshed successfully")
             except Exception as e:
-                logger.error(f"Failed to refresh Gmail credentials: {e}")
+                logger.error(f"[Gmail API] Failed to refresh Gmail credentials: {e}")
                 return None
 
         # Build Gmail service
+        logger.debug("[Gmail API] Building Gmail service client...")
         service = build("gmail", "v1", credentials=creds)
+        logger.info("[Gmail API] Gmail service client built successfully")
 
         # Get the most recent message (within last 2 minutes)
+        logger.info("[Gmail API] Querying for recent messages (newer than 2 minutes)...")
         results = (
             service.users()
             .messages()
@@ -412,32 +432,46 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         )
 
         messages = results.get("messages", [])
+        logger.info(f"[Gmail API] Found {len(messages)} recent messages")
+        
         if not messages:
-            logger.info("No recent messages found")
+            logger.info("[Gmail API] No recent messages found (within last 2 minutes)")
             return None
 
         # Get the most recent message details
         message_id = messages[0]["id"]
+        logger.info(f"[Gmail API] Fetching details for message ID: {message_id}")
         message = service.users().messages().get(userId="me", id=message_id).execute()
+        logger.debug(f"[Gmail API] Message details retrieved. Thread ID: {message.get('threadId', 'N/A')}")
 
         # Extract headers
+        payload_headers = message.get("payload", {}).get("headers", [])
         headers = {
-            h["name"]: h["value"] for h in message.get("payload", {}).get("headers", [])
+            h["name"]: h["value"] for h in payload_headers
         }
+        logger.debug(f"[Gmail API] Extracted {len(headers)} headers from message")
+        logger.debug(f"[Gmail API] Key headers: From={headers.get('From', 'N/A')}, Subject={headers.get('Subject', 'N/A')[:50]}...")
 
         # Check if this is a reply (has In-Reply-To or References headers)
         is_reply = "In-Reply-To" in headers or "References" in headers
+        logger.info(f"[Gmail API] Message reply status: {is_reply} (In-Reply-To: {'✓' if 'In-Reply-To' in headers else '✗'}, References: {'✓' if 'References' in headers else '✗'})")
+        
         if not is_reply:
-            logger.info("Latest message is not a reply, skipping")
+            logger.info("[Gmail API] Latest message is not a reply, skipping")
             return None
 
         # Extract email content
+        logger.info("[Gmail API] Extracting email content from message...")
         content = extract_email_content(message)
+        
         if not content:
-            logger.warning("Could not extract content from email")
+            logger.warning("[Gmail API] Could not extract content from email")
             return None
+            
+        logger.info(f"[Gmail API] Successfully extracted email content, length: {len(content)} characters")
+        logger.debug(f"[Gmail API] Content preview: {content[:100]}...")
 
-        return {
+        extracted_data = {
             "from_email": headers.get("From", ""),
             "to_email": headers.get("To", ""),
             "subject": headers.get("Subject", "No Subject"),
@@ -446,9 +480,21 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
             "message_id": headers.get("Message-ID", message_id),
             "in_reply_to": headers.get("In-Reply-To", ""),
         }
+        
+        logger.info(f"[Gmail API] Email extraction completed successfully:")
+        logger.info(f"  From: {extracted_data['from_email']}")
+        logger.info(f"  To: {extracted_data['to_email']}")
+        logger.info(f"  Subject: {extracted_data['subject']}")
+        logger.info(f"  Thread ID: {extracted_data['thread_id']}")
+        logger.info(f"  Body length: {len(extracted_data['body'])} characters")
+        
+        return extracted_data
 
     except Exception as e:
-        logger.error(f"Error fetching email content from Gmail API: {e}")
+        logger.error(f"[Gmail API] Error fetching email content from Gmail API: {e}")
+        logger.error(f"[Gmail API] Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"[Gmail API] Full traceback: {traceback.format_exc()}")
         return None
 
 
@@ -456,73 +502,122 @@ def extract_email_content(message: Dict[str, Any]) -> str:
     """
     Extract the text content from the email message, trying to get only the latest reply.
     """
+    logger.debug("[Gmail Content] Starting email content extraction...")
     try:
         if "payload" not in message:
+            logger.warning("[Gmail Content] No payload found in message")
             return ""
 
         content = ""
+        payload = message["payload"]
+        logger.debug(f"[Gmail Content] Payload structure: mimeType={payload.get('mimeType', 'N/A')}, has_parts={bool(payload.get('parts'))}")
 
         # Check for plain text parts first
-        if "parts" in message["payload"]:
-            for part in message["payload"]["parts"]:
-                if part["mimeType"] == "text/plain":
+        if "parts" in payload:
+            parts = payload["parts"]
+            logger.debug(f"[Gmail Content] Found {len(parts)} parts in message")
+            
+            for i, part in enumerate(parts):
+                part_mime_type = part.get("mimeType", "unknown")
+                logger.debug(f"[Gmail Content] Part {i}: mimeType={part_mime_type}, has_body_data={bool(part.get('body', {}).get('data'))}")
+                
+                if part_mime_type == "text/plain":
                     if "data" in part["body"]:
+                        logger.info(f"[Gmail Content] Found plain text content in part {i}")
                         content = base64.urlsafe_b64decode(part["body"]["data"]).decode(
                             "utf-8"
                         )
+                        logger.debug(f"[Gmail Content] Decoded content length: {len(content)} characters")
                         break
+            
+            if not content:
+                logger.debug("[Gmail Content] No plain text parts found with content")
+        else:
+            logger.debug("[Gmail Content] No parts found in payload")
 
         # If no plain text parts, try to get the body directly
         if (
             not content
-            and "body" in message["payload"]
-            and "data" in message["payload"]["body"]
+            and "body" in payload
+            and "data" in payload["body"]
         ):
-            if message["payload"].get("mimeType") == "text/plain":
+            payload_mime_type = payload.get("mimeType")
+            logger.debug(f"[Gmail Content] Trying direct body extraction. Payload mimeType: {payload_mime_type}")
+            
+            if payload_mime_type == "text/plain":
+                logger.info("[Gmail Content] Found plain text content in direct body")
                 content = base64.urlsafe_b64decode(
-                    message["payload"]["body"]["data"]
+                    payload["body"]["data"]
                 ).decode("utf-8")
+                logger.debug(f"[Gmail Content] Decoded direct body content length: {len(content)} characters")
+            else:
+                logger.debug(f"[Gmail Content] Direct body is not plain text ({payload_mime_type}), skipping")
 
         if content:
+            logger.info(f"[Gmail Content] Processing content for reply extraction. Original length: {len(content)} characters")
+            
             # Split content into lines
             lines = content.splitlines()
+            logger.debug(f"[Gmail Content] Split content into {len(lines)} lines")
 
             # Find where quoted text begins and remove it
             cut_off_index = len(lines)
             for i, line in enumerate(lines):
+                line_stripped = line.strip()
                 # Common reply headers
-                if re.match(r"On\s.*(wrote|écrit):$", line.strip(), re.IGNORECASE):
+                if re.match(r"On\s.*(wrote|écrit):$", line_stripped, re.IGNORECASE):
+                    logger.debug(f"[Gmail Content] Found reply header at line {i}: {line_stripped[:50]}...")
                     cut_off_index = i
                     break
                 # Forwarded message header
-                if line.strip() == "---------- Forwarded message ---------":
+                if line_stripped == "---------- Forwarded message ---------":
+                    logger.debug(f"[Gmail Content] Found forwarded message header at line {i}")
                     cut_off_index = i
                     break
+
+            logger.debug(f"[Gmail Content] Quote cut-off index: {cut_off_index} (out of {len(lines)} lines)")
 
             # Take all lines before the cut-off
             latest_reply_lines = lines[:cut_off_index]
             latest_reply = "\n".join(latest_reply_lines).strip()
 
             if latest_reply:
+                logger.info(f"[Gmail Content] Successfully extracted reply content, length: {len(latest_reply)} characters")
+                logger.debug(f"[Gmail Content] Reply preview: {latest_reply[:100]}...")
                 return latest_reply
             else:
+                logger.debug("[Gmail Content] No content after quote removal, trying quote line removal...")
                 # Try removing quoted lines (starting with ">")
                 last_non_quote = -1
                 for i in range(len(lines) - 1, -1, -1):
                     if not lines[i].strip().startswith(">"):
                         last_non_quote = i
                         break
+                        
+                logger.debug(f"[Gmail Content] Last non-quote line index: {last_non_quote}")
+                
                 if last_non_quote != -1:
-                    return "\n".join(lines[: last_non_quote + 1]).strip()
+                    result = "\n".join(lines[: last_non_quote + 1]).strip()
+                    logger.info(f"[Gmail Content] Extracted content after removing quote lines, length: {len(result)} characters")
+                    return result
+        else:
+            logger.warning("[Gmail Content] No content extracted from message parts or body")
 
         # If we still don't have content, use the snippet
-        if message.get("snippet"):
-            return message.get("snippet", "")
-
+        snippet = message.get("snippet")
+        if snippet:
+            logger.info(f"[Gmail Content] Falling back to message snippet, length: {len(snippet)} characters")
+            logger.debug(f"[Gmail Content] Snippet content: {snippet}")
+            return snippet
+        
+        logger.warning("[Gmail Content] No content found in message - no parts, body, or snippet")
         return content
 
     except Exception as e:
-        logger.error(f"Error extracting email content: {e}")
+        logger.error(f"[Gmail Content] Error extracting email content: {e}")
+        logger.error(f"[Gmail Content] Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"[Gmail Content] Full traceback: {traceback.format_exc()}")
         return ""
 
 
