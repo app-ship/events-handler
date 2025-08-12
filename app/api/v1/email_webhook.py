@@ -115,6 +115,11 @@ async def email_webhook(request: Request, background_tasks: BackgroundTasks):
                     f"Received Email event: {event_wrapper.event_id} from project {event_wrapper.project_id}"
                 )
                 logger.info(f"Event type: {event_wrapper.event.type}")
+                
+                # Log org_id information from the event
+                org_id = getattr(event_wrapper.event, 'org_id', None)
+                logger.info(f"[ORG ID TRACKING] Event received with org_id: {org_id}")
+                logger.info(f"[ORG ID TRACKING] Event metadata: from_email={getattr(event_wrapper.event, 'from_email', 'N/A')}, to_email={getattr(event_wrapper.event, 'to_email', 'N/A')}")
 
                 # Process supported Email events (email_reply)
                 supported_event_types = {"email_reply"}
@@ -182,6 +187,11 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
         PubSubServiceException: If publishing fails
     """
     try:
+        # Log org_id tracking at publish level
+        org_id = getattr(event_wrapper.event, 'org_id', None)
+        logger.info(f"[ORG ID TRACKING] Publishing email event with org_id: {org_id}")
+        logger.info(f"[ORG ID TRACKING] Event ID: {event_wrapper.event_id}, Project ID: {event_wrapper.project_id}")
+        
         # Prepare event data for pub/sub
         event_data = {
             "email_event": event_wrapper.model_dump(),
@@ -189,6 +199,13 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
             "event_timestamp": time.time(),
             "event_type": "email_reply",
         }
+
+        # Log the full event data structure for debugging
+        logger.info(f"[ORG ID TRACKING] Event data keys: {list(event_data.keys())}")
+        logger.info(f"[ORG ID TRACKING] Email event keys: {list(event_data['email_event'].keys()) if 'email_event' in event_data else 'No email_event key'}")
+        if 'email_event' in event_data and 'event' in event_data['email_event']:
+            logger.info(f"[ORG ID TRACKING] Email event.event keys: {list(event_data['email_event']['event'].keys())}")
+            logger.info(f"[ORG ID TRACKING] Email event.event.org_id: {event_data['email_event']['event'].get('org_id', 'NOT_FOUND')}")
 
         # Prepare attributes for message routing
         attributes = {
@@ -199,6 +216,13 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
             "to_email": event_wrapper.event.to_email or "",
             "message_type": event_wrapper.event.type,
         }
+        
+        # Add org_id to attributes if present
+        if org_id:
+            attributes["org_id"] = org_id
+            logger.info(f"[ORG ID TRACKING] Added org_id to pubsub attributes: {org_id}")
+        else:
+            logger.warning(f"[ORG ID TRACKING] No org_id found to add to pubsub attributes")
 
         # Create topic if it doesn't exist
         topic_info = await pubsub_service.create_topic_if_not_exists(
@@ -468,11 +492,18 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         for header_name in ['X-Org-Id', 'X-Organization-Id', 'X-Org-ID']:
             if header_name in headers:
                 org_id = headers[header_name]
-                logger.info(f"[Gmail API] Found organization ID in header {header_name}: {org_id}")
+                logger.info(f"[ORG ID TRACKING - Gmail API] Found organization ID in header {header_name}: {org_id}")
                 break
         
         if not org_id:
-            logger.debug("[Gmail API] No X-Org-Id header found in email headers")
+            logger.warning("[ORG ID TRACKING - Gmail API] No X-Org-Id header found in email headers")
+            logger.info(f"[ORG ID TRACKING - Gmail API] Available headers: {list(headers.keys())}")
+            # Also check for other common org headers
+            for header_name in headers.keys():
+                if 'org' in header_name.lower():
+                    logger.info(f"[ORG ID TRACKING - Gmail API] Found potential org header: {header_name} = {headers[header_name]}")
+        else:
+            logger.info(f"[ORG ID TRACKING - Gmail API] Successfully extracted org_id: {org_id}")
 
         # Check if this is a reply (has In-Reply-To or References headers)
         is_reply = "In-Reply-To" in headers or "References" in headers
@@ -515,6 +546,7 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         logger.info(f"  In-Reply-To: {extracted_data['in_reply_to']}")
         logger.info(f"  References: {extracted_data['references'][:100]}..." if len(extracted_data['references']) > 100 else f"  References: {extracted_data['references']}")
         logger.info(f"  Body length: {len(extracted_data['body'])} characters")
+        logger.info(f"[ORG ID TRACKING - Gmail API] Final extracted org_id: {extracted_data.get('org_id', 'NOT_FOUND')}")
         
         return extracted_data
 
