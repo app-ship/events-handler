@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     slack_signing_secret: str = Field(default="", alias="SLACK_SIGNING_SECRET")
     slack_webhook_verify_signature: bool = Field(default=True, alias="SLACK_WEBHOOK_VERIFY_SIGNATURE")
     
+    # Gmail settings
+    gmail_oauth_token: str = Field(default="", alias="GMAIL_OAUTH_TOKEN")
+    gmail_client_secret: str = Field(default="", alias="GMAIL_CLIENT_SECRET")
+    
     @field_validator('allowed_hosts_raw')
     @classmethod
     def validate_allowed_hosts_raw(cls, v):

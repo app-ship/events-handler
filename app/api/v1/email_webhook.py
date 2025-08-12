@@ -265,8 +265,33 @@ async def process_gmail_notification(
         email_content = await fetch_recent_email_content(email_address)
 
         if not email_content:
-            logger.warning(f"No recent email content found for {email_address}")
-            return None
+            logger.warning(
+                f"No recent email content found for {email_address}, creating placeholder event"
+            )
+            # Fallback to placeholder content if Gmail API fails
+            current_time = int(time.time())
+            event_data = {
+                "project_id": "infis-ai",  # Default project
+                "event": {
+                    "type": "email_reply",
+                    "event_ts": str(current_time),
+                    "from_email": email_address,
+                    "to_email": "",  # Would be populated from Gmail API
+                    "subject": f"Gmail Notification (History ID: {history_id})",
+                    "body": f"Email notification received for {email_address} with history ID {history_id}. Gmail API content fetch failed, using placeholder.",
+                    "thread_id": str(history_id),
+                    "message_id": f"gmail-{history_id}-{current_time}",
+                    "in_reply_to": "",
+                },
+                "type": "email_callback",
+                "event_id": f"gmail-{history_id}-{current_time}",
+                "event_time": current_time,
+            }
+
+            # Validate and create EmailEventWrapper with placeholder
+            email_event = EmailEventWrapper(**event_data)
+            logger.info(f"Created fallback EmailEventWrapper: {email_event.event_id}")
+            return email_event
 
         # Create EmailEventWrapper with actual email content
         current_time = int(time.time())
@@ -319,11 +344,13 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         import base64
         import re
 
-        # Get Gmail credentials from environment variables
-        gmail_oauth_token = os.getenv("GMAIL_OAUTH_TOKEN")
-        
+        # Get Gmail credentials from settings
+        from app.core.config import settings
+
+        gmail_oauth_token = settings.gmail_oauth_token
+
         if not gmail_oauth_token:
-            logger.error("GMAIL_OAUTH_TOKEN environment variable not found")
+            logger.error("GMAIL_OAUTH_TOKEN not configured in settings")
             return None
 
         # Parse the OAuth token JSON
@@ -340,9 +367,23 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
             token_uri=token_info.get("token_uri"),
             client_id=token_info.get("client_id"),
             client_secret=token_info.get("client_secret"),
-            scopes=token_info.get("scopes", ["https://www.googleapis.com/auth/gmail.readonly"])
+            scopes=[
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://mail.google.com/",
+            ],
         )
-        
+
+        # Refresh token if expired
+        if creds.expired and creds.refresh_token:
+            from google.auth.transport.requests import Request
+
+            try:
+                creds.refresh(Request())
+                logger.info("Gmail credentials refreshed successfully")
+            except Exception as e:
+                logger.error(f"Failed to refresh Gmail credentials: {e}")
+                return None
+
         # Build Gmail service
         service = build("gmail", "v1", credentials=creds)
 
