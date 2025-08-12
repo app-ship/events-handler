@@ -487,27 +487,62 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         logger.debug(f"[Gmail API] Extracted {len(headers)} headers from message")
         logger.debug(f"[Gmail API] Key headers: From={headers.get('From', 'N/A')}, Subject={headers.get('Subject', 'N/A')[:50]}...")
         
-        # Extract org_id from X-Org-Id header if present
+        # Check if this is a reply (has In-Reply-To or References headers)
+        is_reply = "In-Reply-To" in headers or "References" in headers
+        logger.info(f"[Gmail API] Message reply status: {is_reply} (In-Reply-To: {'✓' if 'In-Reply-To' in headers else '✗'}, References: {'✓' if 'References' in headers else '✗'})")
+        
+        # Extract org_id from X-Org-Id header if present in the reply message
         org_id = None
         for header_name in ['X-Org-Id', 'X-Organization-Id', 'X-Org-ID']:
             if header_name in headers:
                 org_id = headers[header_name]
-                logger.info(f"[ORG ID TRACKING - Gmail API] Found organization ID in header {header_name}: {org_id}")
+                logger.info(f"[ORG ID TRACKING - Gmail API] Found organization ID in reply header {header_name}: {org_id}")
                 break
         
+        # If no org_id in reply (which is normal), try to get it from the original message in the thread
+        if not org_id and is_reply:
+            logger.info("[ORG ID TRACKING - Gmail API] No org_id in reply message, fetching original message from thread")
+            try:
+                # Get the thread ID to fetch all messages in the thread
+                thread_id = message.get("threadId")
+                if thread_id:
+                    logger.info(f"[ORG ID TRACKING - Gmail API] Fetching thread messages for thread_id: {thread_id}")
+                    thread = service.users().threads().get(userId="me", id=thread_id).execute()
+                    
+                    # Look through all messages in thread to find the original message with X-Org-Id
+                    thread_messages = thread.get("messages", [])
+                    logger.info(f"[ORG ID TRACKING - Gmail API] Found {len(thread_messages)} messages in thread")
+                    
+                    for i, thread_message in enumerate(thread_messages):
+                        # Skip the current reply message
+                        if thread_message.get("id") == message_id:
+                            continue
+                            
+                        thread_headers = {h["name"]: h["value"] for h in thread_message.get("payload", {}).get("headers", [])}
+                        
+                        # Look for X-Org-Id in this message
+                        for header_name in ['X-Org-Id', 'X-Organization-Id', 'X-Org-ID']:
+                            if header_name in thread_headers:
+                                org_id = thread_headers[header_name]
+                                logger.info(f"[ORG ID TRACKING - Gmail API] Found org_id in original message #{i}: {org_id}")
+                                break
+                        
+                        if org_id:
+                            break
+                    
+                    if not org_id:
+                        logger.warning(f"[ORG ID TRACKING - Gmail API] No X-Org-Id found in any of {len(thread_messages)} messages in thread")
+                else:
+                    logger.warning("[ORG ID TRACKING - Gmail API] No thread_id available to fetch original message")
+                    
+            except Exception as e:
+                logger.error(f"[ORG ID TRACKING - Gmail API] Error fetching original message from thread: {e}")
+        
         if not org_id:
-            logger.warning("[ORG ID TRACKING - Gmail API] No X-Org-Id header found in email headers")
-            logger.info(f"[ORG ID TRACKING - Gmail API] Available headers: {list(headers.keys())}")
-            # Also check for other common org headers
-            for header_name in headers.keys():
-                if 'org' in header_name.lower():
-                    logger.info(f"[ORG ID TRACKING - Gmail API] Found potential org header: {header_name} = {headers[header_name]}")
+            logger.warning("[ORG ID TRACKING - Gmail API] No X-Org-Id header found in reply or original message")
+            logger.info(f"[ORG ID TRACKING - Gmail API] Available reply headers: {list(headers.keys())}")
         else:
             logger.info(f"[ORG ID TRACKING - Gmail API] Successfully extracted org_id: {org_id}")
-
-        # Check if this is a reply (has In-Reply-To or References headers)
-        is_reply = "In-Reply-To" in headers or "References" in headers
-        logger.info(f"[Gmail API] Message reply status: {is_reply} (In-Reply-To: {'✓' if 'In-Reply-To' in headers else '✗'}, References: {'✓' if 'References' in headers else '✗'})")
         
         if not is_reply:
             logger.info("[Gmail API] Latest message is not a reply, skipping")
