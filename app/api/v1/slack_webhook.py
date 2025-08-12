@@ -10,7 +10,7 @@ import time
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from app.models.slack_webhook import (
@@ -97,7 +97,7 @@ def verify_slack_signature(request: Request, body: bytes, signing_secret: str) -
         500: {"model": ErrorResponse, "description": "Internal server error"},
     },
 )
-async def slack_webhook(request: Request):
+async def slack_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Slack Events API webhook endpoint
     
@@ -105,7 +105,7 @@ async def slack_webhook(request: Request):
     1. Receives Slack Events API webhooks
     2. Verifies Slack signatures for security
     3. Handles URL verification challenges
-    4. Publishes Slack events to SLACK_REPLY_EVENT pub/sub topic
+    4. Publishes Slack events to SLACK_REPLY_EVENT pub/sub topic (asynchronously)
     """
     try:
         # Get request body
@@ -137,20 +137,22 @@ async def slack_webhook(request: Request):
         
         # Handle URL verification challenge
         if payload_data.get("type") == "url_verification":
-            try:
-                challenge_data = SlackChallenge(**payload_data)
-                logger.info("Responding to Slack URL verification challenge")
-                return SlackWebhookResponse(
-                    status="ok",
-                    challenge=challenge_data.challenge
-                )
-            except Exception as e:
-                logger.error(f"Error parsing Slack challenge: {e}")
+            challenge = payload_data.get("challenge")
+            if not challenge:
+                logger.error("Missing challenge in URL verification")
                 return _create_error_response(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    error_message=f"Invalid challenge format: {str(e)}",
-                    error_code="INVALID_CHALLENGE",
+                    error_message="Missing challenge",
+                    error_code="MISSING_CHALLENGE",
                 )
+            
+            logger.info("Slack URL verification challenge received")
+            return SlackWebhookResponse(
+                status="ok",
+                message="URL verification challenge",
+                challenge=challenge
+            )
+
         
         # Handle event callback
         elif payload_data.get("type") == "event_callback":
@@ -182,14 +184,14 @@ async def slack_webhook(request: Request):
                     logger.info("Skipping empty message")
                     return SlackWebhookResponse(status="ok", message="Empty message skipped")
                 
-                # Publish to pub/sub topic
-                publish_result = await publish_slack_event(event_wrapper)
+                # Schedule Pub/Sub publishing as background task (respond to Slack immediately)
+                background_tasks.add_task(publish_slack_event_background, event_wrapper)
                 
-                logger.info(f"Slack event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}")
+                logger.info(f"Slack event {event_wrapper.event_id} queued for publishing")
                 
                 return SlackWebhookResponse(
                     status="ok",
-                    message="Slack event published to pub/sub"
+                    message="Slack event received and queued for processing"
                 )
                 
             except Exception as e:
@@ -271,6 +273,19 @@ async def publish_slack_event(event_wrapper: SlackEventWrapper) -> Dict[str, str
             error_code="SLACK_PUBLISH_ERROR",
             details={"event_id": event_wrapper.event_id, "error": str(e)}
         )
+
+
+async def publish_slack_event_background(event_wrapper: SlackEventWrapper) -> None:
+    """
+    Background task to publish Slack event to Pub/Sub
+    This runs after responding to Slack to prevent timeouts
+    """
+    try:
+        publish_result = await publish_slack_event(event_wrapper)
+        logger.info(f"Background: Slack event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}")
+    except Exception as e:
+        logger.error(f"Background: Failed to publish Slack event {event_wrapper.event_id} to pub/sub: {e}")
+        # Could implement retry logic or dead letter queue here
 
 
 @router.get("/health")
