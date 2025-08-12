@@ -33,8 +33,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/email", tags=["email"])
 
 # Email topic name for event publishing
-EMAIL_REPLY_EVENT_TOPIC = "stage-email-reply-topic"
-STAGE_EMAIL_REPLY_TOPIC = "stage-email-reply-topic"
+EMAIL_REPLY_EVENT_TOPIC = os.getenv("EMAIL_REPLY_TOPIC", "stage-email-reply-topic")
+EMAIL_REPLY_TOPIC = os.getenv("EMAIL_REPLY_TOPIC", "stage-email-reply-topic")
 
 
 def _create_error_response(

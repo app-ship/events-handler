@@ -7,6 +7,7 @@ import logging
 import hashlib
 import hmac
 import time
+import os
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/slack", tags=["slack"])
 
 # Slack topic name for event publishing
-SLACK_REPLY_EVENT_TOPIC = "slack-reply-event"
+SLACK_REPLY_EVENT_TOPIC = os.getenv("SLACK_REPLY_EVENT_TOPIC", "slack-reply-event")
 
 
 def _create_error_response(

@@ -6,6 +6,7 @@ Handles subscription to email-replies topic and publishes to app-email-reply-eve
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
@@ -25,11 +26,11 @@ from app.utils.exceptions import (
 logger = logging.getLogger(__name__)
 
 # Source topic to subscribe to (Gmail API events)
-EMAIL_SOURCE_TOPIC = "email-replies"
-EMAIL_SOURCE_SUBSCRIPTION = "email-replies-subscription"
+EMAIL_SOURCE_TOPIC = os.getenv("EMAIL_REPLIES_TOPIC", "email-replies")
+EMAIL_SOURCE_SUBSCRIPTION = os.getenv("EMAIL_REPLIES_SUBSCRIPTION", "email-replies-subscription")
 
 # Target topic to publish to (app events)
-EMAIL_TARGET_TOPIC = "stage-email-reply-topic"
+EMAIL_TARGET_TOPIC = os.getenv("EMAIL_REPLY_TOPIC", "stage-email-reply-topic")
 
 
 class EmailSubscriptionService:
