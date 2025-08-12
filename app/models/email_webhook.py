@@ -19,6 +19,7 @@ class EmailEvent(BaseModel):
     thread_id: Optional[str] = None
     message_id: Optional[str] = None
     in_reply_to: Optional[str] = None
+    references: Optional[str] = None
 
 
 class EmailEventWrapper(BaseModel):
@@ -68,7 +69,8 @@ class EmailEventPublishRequest(BaseModel):
                         "body": "Thanks for your help!",
                         "thread_id": "thread123",
                         "message_id": "msg123",
-                        "in_reply_to": "msg122"
+                        "in_reply_to": "msg122",
+                        "references": "msg121 msg122"
                     },
                     "type": "email_callback",
                     "event_id": "Em123456",

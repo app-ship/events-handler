@@ -327,6 +327,7 @@ async def process_gmail_notification(
                 "thread_id": email_content["thread_id"],
                 "message_id": email_content["message_id"],
                 "in_reply_to": email_content.get("in_reply_to", ""),
+                "references": email_content.get("references", ""),
             },
             "type": "email_callback",
             "event_id": f"Em{int(time.time())}{hash(email_content.get('message_id', '')) % 1000000}",
@@ -479,6 +480,7 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
             "thread_id": message.get("threadId", ""),
             "message_id": headers.get("Message-ID", message_id),
             "in_reply_to": headers.get("In-Reply-To", ""),
+            "references": headers.get("References", ""),
         }
         
         logger.info(f"[Gmail API] Email extraction completed successfully:")
@@ -486,6 +488,9 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         logger.info(f"  To: {extracted_data['to_email']}")
         logger.info(f"  Subject: {extracted_data['subject']}")
         logger.info(f"  Thread ID: {extracted_data['thread_id']}")
+        logger.info(f"  Message-ID: {extracted_data['message_id']}")
+        logger.info(f"  In-Reply-To: {extracted_data['in_reply_to']}")
+        logger.info(f"  References: {extracted_data['references'][:100]}..." if len(extracted_data['references']) > 100 else f"  References: {extracted_data['references']}")
         logger.info(f"  Body length: {len(extracted_data['body'])} characters")
         
         return extracted_data
