@@ -11,7 +11,7 @@ import os
 import re
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 
 from app.models.email_webhook import (
@@ -62,23 +62,20 @@ def _create_error_response(
     summary="Email Events API webhook",
     description="Receives Email Events API webhooks and publishes them to the EMAIL_REPLY_EVENT pub/sub topic",
     responses={
-        200: {
-            "model": EmailWebhookResponse,
-            "description": "Email event processed successfully",
-        },
+        200: {"model": EmailWebhookResponse, "description": "Email event processed successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request data"},
         401: {"model": ErrorResponse, "description": "Invalid signature"},
         500: {"model": ErrorResponse, "description": "Internal server error"},
     },
 )
-async def email_webhook(request: Request):
+async def email_webhook(request: Request, background_tasks: BackgroundTasks):
     """
     Email Events API webhook endpoint
 
     This endpoint:
     1. Receives Email Events API webhooks
     2. Handles URL verification challenges
-    3. Publishes Email events to EMAIL_REPLY_EVENT pub/sub topic
+    3. Publishes Email events to EMAIL_REPLY_EVENT pub/sub topic (asynchronously)
     """
     try:
         # Get request body
@@ -136,15 +133,13 @@ async def email_webhook(request: Request):
                         status="ok", message="Empty email message skipped"
                     )
 
-                # Publish to pub/sub topic
-                publish_result = await publish_email_event(event_wrapper)
+                # Schedule Pub/Sub publishing as background task (respond to Gmail immediately)
+                background_tasks.add_task(publish_email_event_background, event_wrapper)
 
-                logger.info(
-                    f"Email event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}"
-                )
+                logger.info(f"Email event {event_wrapper.event_id} queued for publishing")
 
                 return EmailWebhookResponse(
-                    status="ok", message="Email event published to pub/sub"
+                    status="ok", message="Email event received and queued for processing"
                 )
 
             except Exception as e:
@@ -230,6 +225,19 @@ async def publish_email_event(event_wrapper: EmailEventWrapper) -> Dict[str, str
             error_code="EMAIL_PUBLISH_ERROR",
             details={"event_id": event_wrapper.event_id, "error": str(e)},
         )
+
+
+async def publish_email_event_background(event_wrapper: EmailEventWrapper) -> None:
+    """
+    Background task to publish Email event to Pub/Sub
+    This runs after responding to Gmail to prevent timeouts
+    """
+    try:
+        publish_result = await publish_email_event(event_wrapper)
+        logger.info(f"Background: Email event {event_wrapper.event_id} published successfully with message ID: {publish_result['message_id']}")
+    except Exception as e:
+        logger.error(f"Background: Failed to publish Email event {event_wrapper.event_id} to pub/sub: {e}")
+        # Could implement retry logic or dead letter queue here
 
 
 async def process_gmail_notification(
