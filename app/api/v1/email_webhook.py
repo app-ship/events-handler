@@ -336,6 +336,8 @@ async def process_gmail_notification(
                 "message_id": email_content["message_id"],
                 "in_reply_to": email_content.get("in_reply_to", ""),
                 "references": email_content.get("references", ""),
+                "org_id": email_content.get("org_id"),  # Include org_id from email headers
+                "headers": email_content.get("headers"),  # Include headers for additional metadata
             },
             "type": "email_callback",
             "event_id": f"Em{int(time.time())}{hash(email_content.get('message_id', '')) % 1000000}",
@@ -460,6 +462,17 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
         }
         logger.debug(f"[Gmail API] Extracted {len(headers)} headers from message")
         logger.debug(f"[Gmail API] Key headers: From={headers.get('From', 'N/A')}, Subject={headers.get('Subject', 'N/A')[:50]}...")
+        
+        # Extract org_id from X-Org-Id header if present
+        org_id = None
+        for header_name in ['X-Org-Id', 'X-Organization-Id', 'X-Org-ID']:
+            if header_name in headers:
+                org_id = headers[header_name]
+                logger.info(f"[Gmail API] Found organization ID in header {header_name}: {org_id}")
+                break
+        
+        if not org_id:
+            logger.debug("[Gmail API] No X-Org-Id header found in email headers")
 
         # Check if this is a reply (has In-Reply-To or References headers)
         is_reply = "In-Reply-To" in headers or "References" in headers
@@ -489,6 +502,8 @@ async def fetch_recent_email_content(email_address: str) -> Optional[Dict[str, s
             "message_id": headers.get("Message-ID", message_id),
             "in_reply_to": headers.get("In-Reply-To", ""),
             "references": headers.get("References", ""),
+            "org_id": org_id,  # Add org_id from X-Org-Id header
+            "headers": headers,  # Include all headers for additional parsing
         }
         
         logger.info(f"[Gmail API] Email extraction completed successfully:")

@@ -20,6 +20,8 @@ class EmailEvent(BaseModel):
     message_id: Optional[str] = None
     in_reply_to: Optional[str] = None
     references: Optional[str] = None
+    org_id: Optional[str] = None
+    headers: Optional[Dict[str, Any]] = None
 
 
 class EmailEventWrapper(BaseModel):
