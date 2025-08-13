@@ -46,7 +46,7 @@ steps:
       - '--clear-vpc-connector'
       - '--timeout=300'
       - '--set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID,SLACK_REPLY_EVENT_TOPIC=prod_slack_event,EMAIL_REPLIES_TOPIC=email-replies,EMAIL_REPLY_TOPIC=prod_email_reply,DEBUG=false,APP_NAME=Events Handler API,APP_VERSION=1.0.0,PUBSUB_TIMEOUT=60.0,MAX_MESSAGES_PER_PULL=100,API_V1_PREFIX=/api/v1,ALLOWED_HOSTS_RAW=*'
-      - '--update-secrets=:GMAIL_OAUTH_TOKEN=GMAIL_OAUTH_TOKEN:latest,GMAIL_CLIENT_SECRET=GMAIL_CLIENT_SECRET:latest'
+      - '--update-secrets=GMAIL_OAUTH_TOKEN=GMAIL_OAUTH_TOKEN:latest,GMAIL_CLIENT_SECRET=GMAIL_CLIENT_SECRET:latest'
       - '--execution-environment=gen2'
       - '--cpu-boost'
 
