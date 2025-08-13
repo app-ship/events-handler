@@ -20,20 +20,20 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler:$BUILD_ID'
       - '.'
 
   # Push the container image to Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID']
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler:$BUILD_ID']
 
   # Deploy with service account (no credential files needed!)
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       - 'run'
       - 'deploy'
-      - 'events-handler-staging'
-      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID'
+      - 'events-handler'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler:$BUILD_ID'
       - '--region=us-central1'
       - '--allow-unauthenticated'
       - '--memory=2Gi'
@@ -51,6 +51,6 @@ steps:
       - '--cpu-boost'
 
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler-staging:$BUILD_ID'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/infis-repo/events-handler:$BUILD_ID'
 
 timeout: '2800s'  # 30 minutes
