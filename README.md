@@ -104,7 +104,7 @@ curl -X POST "http://localhost:8000/api/v1/events/trigger" \
       "priority": "high",
       "environment": "production"
     },
-    "source_service": "deep-reseach-service"
+    "source_service": "deep-research-service"
   }'
 ```
 
@@ -180,7 +180,7 @@ async def trigger_research_event(user_id: str, query: str):
                     "query": query,
                     "timestamp": datetime.utcnow().isoformat()
                 },
-                "source_service": "deep-reseach-service"
+                "source_service": "deep-research-service"
             }
         )
         return response.json()

@@ -56,7 +56,7 @@ class EventTriggerRequest(BaseModel):
                     "priority": "high",
                     "environment": "production"
                 },
-                "source_service": "deep-reseach-service"
+                "source_service": "deep-research-service"
             }
         }
 
