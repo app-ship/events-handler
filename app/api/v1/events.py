@@ -39,7 +39,7 @@ def _create_error_response(
     )
     return JSONResponse(
         status_code=status_code,
-        content=error_response.dict(),
+        content=error_response.model_dump(mode="json"),
     )
 
 
@@ -196,7 +196,7 @@ async def create_topic(request: TopicCreateRequest):
         
         return JSONResponse(
             status_code=response_status,
-            content=response.dict(),
+            content=response.model_dump(mode="json"),
         )
         
     except EventsHandlerException as e:

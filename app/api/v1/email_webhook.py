@@ -51,7 +51,7 @@ def _create_error_response(
     )
     return JSONResponse(
         status_code=status_code,
-        content=error_response.dict(),
+        content=error_response.model_dump(mode="json"),
     )
 
 

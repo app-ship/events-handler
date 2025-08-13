@@ -61,7 +61,7 @@ async def pubsub_health_check():
             logger.info("Pub/Sub health check passed")
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
-                content=HealthCheckResponse(**health_info).dict(),
+                content=HealthCheckResponse(**health_info).model_dump(mode="json"),
             )
         else:
             logger.warning("Pub/Sub health check failed")
@@ -71,7 +71,7 @@ async def pubsub_health_check():
                     error="Pub/Sub service is unhealthy",
                     error_code="PUBSUB_UNHEALTHY",
                     details=health_info,
-                ).dict(),
+                ).model_dump(mode="json"),
             )
             
     except asyncio.TimeoutError:
@@ -82,7 +82,7 @@ async def pubsub_health_check():
                 error="Pub/Sub health check timed out",
                 error_code="HEALTH_CHECK_TIMEOUT",
                 details={"timeout": "10s"},
-            ).dict(),
+            ).model_dump(mode="json"),
         )
     except Exception as e:
         logger.error(f"Pub/Sub health check error: {e}")
@@ -92,7 +92,7 @@ async def pubsub_health_check():
                 error="Failed to perform Pub/Sub health check",
                 error_code="HEALTH_CHECK_ERROR",
                 details={"error": str(e)},
-            ).dict(),
+            ).model_dump(mode="json"),
         )
 
 

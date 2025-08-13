@@ -49,7 +49,7 @@ def _create_error_response(
     )
     return JSONResponse(
         status_code=status_code,
-        content=error_response.dict(),
+        content=error_response.model_dump(mode="json"),
     )
 
 
@@ -236,7 +236,7 @@ async def publish_slack_event(event_wrapper: SlackEventWrapper) -> Dict[str, str
     try:
         # Prepare event data for pub/sub
         event_data = {
-            "slack_event": event_wrapper.dict(),
+            "slack_event": event_wrapper.model_dump(mode="json"),
             "source_service": "events-handler",
             "event_timestamp": time.time(),
             "event_type": "slack_reply",
